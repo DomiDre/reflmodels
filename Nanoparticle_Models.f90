@@ -156,6 +156,71 @@ contains
     sld = sld_core*area_core*density + sld_shell*area_shell*density +&
           sld_immersion*(1d0 - area_core*density - area_shell*density)
     end subroutine sld_immersed_coreshell_sphere
+
+    subroutine sld_multi_immersed_coreshell_sphere(x, x0, density,&
+                                    core_radius, shell_thickness,&
+                                    immersion_depth,&
+                                    sig_radius,&
+                                    sld_core, sld_shell, sld_matrix,&
+                                    N, Nx, sld)
+    double precision, intent(in), dimension(Nx) :: x
+    double precision, intent(in), dimension(N) :: x0, density
+    double precision, intent(in) :: core_radius, shell_thickness
+    double precision, intent(in) :: immersion_depth
+    double precision, intent(in) :: sig_radius
+    complex*16, intent(in) :: sld_core, sld_shell, sld_matrix
+    integer, intent(in) :: N, Nx
+    complex*16, intent(out), dimension(Nx) :: sld
+    
+    integer, parameter :: Np=4
+    double precision, dimension(Nx) :: area_core, area_shell, sld_immersion
+    double precision, dimension(Np) :: p, parallel_p
+    double precision :: Rmin, Rmax
+    double precision :: x0min, x0max
+    double precision :: particle_radius, parallel_areaC, parallel_areaS
+    integer :: ix, i
+    
+    call get_cutoff_lognormal(core_radius, sig_radius, Rmin, Rmax) 
+    p = (/0d0, 0d0, core_radius, shell_thickness/)
+    particle_radius = core_radius + shell_thickness
+    area_core = 0d0
+    area_shell = 0d0
+    sld_immersion = 0d0
+
+    do ix=1, Nx
+        do i=1, N
+            parallel_p = p
+            parallel_p(1) = x0(i) + (i-1)*2d0*sqrt(6d0)/3d0*particle_radius
+            parallel_p(2) = density(i)
+            parallel_areaC = 0d0
+            parallel_areaS = 0d0
+            call integrate_size_distribution(x(ix), parallel_p, Np, &
+                            3, Rmin, Rmax, sig_radius, &
+                            cs_sphere_core_a_fraction, lognormal, parallel_areaC)
+            call integrate_size_distribution(x(ix), parallel_p, Np, &
+                            3, Rmin, Rmax, sig_radius, &
+                            cs_sphere_shell_a_fraction, lognormal, parallel_areaS)
+
+            area_core(ix) = area_core(ix) + parallel_areaC*density(i)
+            area_shell(ix) = area_shell(ix) + parallel_areaS*density(i)
+        end do
+
+        if (x(ix) < immersion_depth) then
+            sld_immersion(ix) = sld_matrix
+        else
+            sld_immersion(ix) = 0d0
+        end if
+        ! print *, ix, area_core(ix), area_shell(ix), sld_immersion(ix)
+    end do
+
+
+    sld = sld_core*area_core + sld_shell*area_shell +&
+          sld_immersion*(1d0 - area_core - area_shell)
+    end subroutine sld_multi_immersed_coreshell_sphere
+!    !$omp parallel private(parallel_p, parallel_areaC, parallel_areaS)
+!    !$omp do
+!    !$omp end do
+!    !$omp end parallel
     
     ! Cube CS NP
     double precision function cs_cube_core_a_fraction(x, p, Np)
